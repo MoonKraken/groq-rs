@@ -153,6 +153,12 @@ impl AsyncGroqClient {
             "stream": request.stream.unwrap_or(false),
         });
 
+        if let Some(true) = request.json_mode {
+            body["response_format"] = json!({
+                "type": "json_object"
+            })
+        }
+
         if let Some(stop) = &request.stop {
             body["stop"] = json!(stop);
         }
@@ -178,6 +184,12 @@ impl AsyncGroqClient {
     /// The parsed JSON value from the response body, or a `GroqError` if the response was not successful.
     async fn parse_response(&self, response: AResponse) -> Result<Value, GroqError> {
         let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|retry_after| retry_after.to_str().ok())
+            .and_then(|retry_after| retry_after.parse().ok());
+
         let body: Value = response.json().await?;
 
         if !status.is_success() {
@@ -191,6 +203,7 @@ impl AsyncGroqClient {
                         .as_str()
                         .unwrap_or("unknown_error")
                         .to_string(),
+                    retry_after,
                 });
             }
         }
@@ -372,6 +385,12 @@ impl GroqClient {
             body["seed"] = json!(seed);
         }
 
+        if let Some(true) = request.json_mode {
+            body["response_format"] = json!({
+                "type": "json_object"
+            })
+        }
+
         let response = self.send_request(body, &format!("{}/chat/completions", self.endpoint))?;
         let chat_completion_response: ChatCompletionResponse = serde_json::from_value(response)?;
         Ok(chat_completion_response)
@@ -393,6 +412,11 @@ impl GroqClient {
 /// The response body as a JSON value.
 fn parse_response(response: Response) -> Result<Value, GroqError> {
     let status = response.status();
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|retry_after| retry_after.to_str().ok())
+        .and_then(|retry_after| retry_after.parse().ok());
     let body: Value = response.json()?;
 
     if !status.is_success() {
@@ -406,6 +430,7 @@ fn parse_response(response: Response) -> Result<Value, GroqError> {
                     .as_str()
                     .unwrap_or("unknown_error")
                     .to_string(),
+                retry_after,
             });
         }
     }
@@ -433,6 +458,30 @@ mod tests {
         let response = client.chat_completion(request).unwrap();
         println!("{:?}", response);
         assert!(!response.choices.is_empty());
+    }
+
+    #[test]
+    fn test_chat_completion_json_mode() {
+        let api_key = std::env::var("GROQ_API_KEY").unwrap();
+        let client = GroqClient::new(api_key.to_string(), None);
+        let messages = vec![ChatCompletionMessage {
+            role: ChatCompletionRoles::User,
+            content: "Give me a JSON object with a 'name' field and an 'age' field.".to_string(),
+            name: None,
+        }];
+        let mut request = ChatCompletionRequest::new("llama3-70b-8192", messages);
+        request.json_mode = Some(true);
+        let response = client.chat_completion(request).unwrap();
+        println!("{:?}", response);
+        assert!(!response.choices.is_empty());
+
+        // Verify that the response content is valid JSON
+        let content = &response.choices[0].message.content;
+        dbg!(content);
+        let json_value: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert!(json_value.is_object());
+        assert!(json_value.get("name").is_some());
+        assert!(json_value.get("age").is_some());
     }
 
     #[test]

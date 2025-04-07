@@ -13,7 +13,7 @@ pub enum GroqError {
     #[error("Failed to parse JSON: {0}")]
     JsonParseError(#[from] serde_json::Error),
     #[error("API error: {message}")]
-    ApiError { message: String, type_: String },
+    ApiError { message: String, type_: String, retry_after: Option<u16> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +256,7 @@ pub struct ChatCompletionRequest {
     pub stream: Option<bool>,
     pub stop: Option<Vec<String>>,
     pub seed: Option<u64>,
+    pub json_mode: Option<bool>,
 }
 
 /// Represents a request to the OpenAI chat completion API.
@@ -287,6 +288,7 @@ impl ChatCompletionRequest {
             stream: Some(false),
             stop: None,
             seed: None,
+            json_mode: None,
         }
     }
 
@@ -352,6 +354,11 @@ impl ChatCompletionRequest {
     /// * `seed` - The seed value to use.
     pub fn seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
+        self
+    }
+
+    pub fn json_mode(mut self, json_mode: bool) -> Self {
+        self.json_mode = Some(json_mode);
         self
     }
 }
